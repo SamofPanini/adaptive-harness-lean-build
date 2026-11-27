@@ -2,6 +2,7 @@
 """Run a single verification and always record the observed result."""
 import datetime
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -11,6 +12,7 @@ import sys
 import time
 
 from receipt import VERDICTS, versions, write
+from comparator import classify, create_judge, final_code
 from scan import scan
 from token_count import report as token_report
 
@@ -60,7 +62,8 @@ def main():
                 axioms=[], sorry_hits=[], new_axiom_decls=[], statement_sha256=None, statement_text=None,
                 tokens=None, peak_rss_kb=None, disk_used_bytes=None,
                 runner={'uname': ' '.join(os.uname()), 'nproc': os.cpu_count(), 'memory_total_kb': memory_total()},
-                started_at=started, finished_at=None)
+                started_at=started, finished_at=None,
+                comparator={'status': 'SKIPPED', 'rc': None, 'seconds': None, 'peak_rss_kb': None, 'log_tail': ''})
     rc = 10
     try:
         start = time.monotonic()
@@ -101,6 +104,39 @@ def main():
         if step['rc']:
             rc = 21 if step['rc'] in (124, 137) else 20
             return rc
+        # Comparator receives a separate fresh project, before Solution was built there.
+        try:
+            setup_path = Path(os.environ.get('OUTPUT_DIR', out.parent)) / 'setup_receipt.json'
+            setup = json.loads(setup_path.read_text()) if setup_path.is_file() else {}
+            if setup.get('comparator_status') == 'OK':
+                judge = create_judge(out / 'judge', mathlib, v['LEAN_TOOLCHAIN'], source)
+                tools = setup['tools']
+                env = os.environ.copy()
+                env.update(COMPARATOR_LANDRUN=tools['landrun'], COMPARATOR_LEAN4EXPORT=tools['lean4export'], COMPARATOR_NANODA=tools['nanoda'])
+                start = time.monotonic()
+                timed_out = False
+                comp_log = out / 'comparator.log'
+                try:
+                    with comp_log.open('w') as log:
+                        proc = subprocess.run(['/usr/bin/time', '-v', '-o', str(out / 'comparator_time.log'), 'timeout', '--kill-after=10', v['COMPARATOR_TIMEOUT_SEC'], 'lake', 'env', tools['comparator'], 'config.json'], cwd=judge, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=int(v['COMPARATOR_TIMEOUT_SEC']) + 30)
+                    comp_rc = proc.returncode
+                    timed_out = comp_rc == 124
+                except subprocess.TimeoutExpired:
+                    timed_out = True; comp_rc = 124
+                except OSError as exc:
+                    comp_log.write_text(str(exc) + '\n'); comp_rc = 127
+                log_text = comp_log.read_text(errors='replace')
+                peak = None
+                time_file = out / 'comparator_time.log'
+                if time_file.exists():
+                    m = re.search(r'Maximum resident set size \(kbytes\):\s*(\d+)', time_file.read_text())
+                    if m: peak = int(m.group(1))
+                data['comparator'] = {'status': classify(comp_rc, log_text, timed_out), 'rc': comp_rc,
+                                      'seconds': round(time.monotonic()-start, 3), 'peak_rss_kb': peak, 'log_tail': log_text[-4000:]}
+        except (OSError, ValueError, KeyError) as exc:
+            (out / 'comparator.log').write_text(str(exc) + '\n')
+            data['comparator']['status'] = 'TOOL_ERROR'
+            data['comparator']['log_tail'] = str(exc)[-4000:]
         audit = work / 'Audit.lean'
         audit.write_text('import Solution\n#print axioms ' + v['TARGET_DECL'] + '\n')
         step = run(command + ['lean', '-j2', '--tstack=400000', '--root=' + str(work), str(audit)], mathlib, out / 'axioms.log', 120)
@@ -120,6 +156,7 @@ def main():
         if data['sorry_hits']: rc = 31
         elif set(data['axioms']) - set(v['PERMITTED_AXIOMS'].split()): rc = 30
         else: rc = 0
+        rc = final_code(rc, data['comparator']['status'])
         return rc
     except (OSError, UnicodeError, ValueError) as exc:
         print('ENV_ERROR:', exc, file=sys.stderr); rc = 10; return rc

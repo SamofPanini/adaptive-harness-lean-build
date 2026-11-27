@@ -27,6 +27,9 @@ jobs:
       EXTRA_B64: ${{ inputs.extra_b64 }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
       - name: Set work paths
         # runner context is not available in job-level env; derive paths from RUNNER_TEMP here
         run: |

@@ -1,0 +1,1 @@
+The statement is an internally frozen statement (R1 section 4, route B). It is not an official challenge. The imports, open declaration, and statement are derived from the public `../core1/record-96308-v26.lean` fixture.

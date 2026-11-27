@@ -35,6 +35,7 @@ class TokenTests(unittest.TestCase):
 class ReceiptTests(unittest.TestCase):
     def test_every_required_field(self):
         data = {key: None for key in REQUIRED}
+        data['comparator'] = {'status': 'SKIPPED', 'rc': None, 'seconds': None, 'peak_rss_kb': None, 'log_tail': ''}
         data['steps'] = {'compile': {'rc': 0, 'seconds': 1}}
         data['verdict_raw'] = 'COMPILED_CLEAN'
         validate(data)
@@ -44,12 +45,13 @@ class ReceiptTests(unittest.TestCase):
 
     def test_step_fields(self):
         data = {key: None for key in REQUIRED}
-        data.update(steps={'compile': {'rc': 0}}, verdict_raw='COMPILED_CLEAN')
+        data.update(steps={'compile': {'rc': 0}}, verdict_raw='COMPILED_CLEAN', comparator={'status': 'SKIPPED', 'rc': None, 'seconds': None, 'peak_rss_kb': None, 'log_tail': ''})
         with self.assertRaises(ValueError): validate(data)
 
     def test_exit_verdict_mapping(self):
         self.assertEqual(VERDICTS, {0: 'COMPILED_CLEAN', 10: 'ENV_ERROR', 20: 'COMPILE_ERROR',
-                                    21: 'TIMEOUT', 30: 'AXIOM_EXTRA', 31: 'SORRY_FOUND'})
+                                    21: 'TIMEOUT', 30: 'AXIOM_EXTRA', 31: 'SORRY_FOUND',
+                                    11: 'COMPARATOR_ERROR', 40: 'COMPARATOR_REJECTED'})
 
 
 if __name__ == '__main__': unittest.main()
