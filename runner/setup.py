@@ -15,7 +15,7 @@ out.mkdir(parents=True, exist_ok=True)
 mathlib = Path(os.environ['MATHLIB']).resolve()
 v = versions()
 revision = os.environ.get('MATHLIB_REV_OVERRIDE') or v['MATHLIB_REV']
-steps = {name: {'rc': None, 'seconds': None} for name in ('toolchain', 'mathlib', 'cache', 'landrun', 'nanoda', 'lean4export', 'comparator', 'challenge')}
+steps = {name: {'rc': None, 'seconds': None} for name in ('toolchain', 'mathlib', 'cache', 'landrun', 'nanoda', 'lean4export', 'comparator', 'challenge', 'prewarm')}
 os.environ['PATH'] = str(Path.home() / '.elan/bin') + os.pathsep + os.environ.get('PATH', '')
 
 
@@ -49,6 +49,10 @@ try:
         base = out / 'tools'
         base.mkdir(exist_ok=True)
         checkout = 'set -e; git init "$1"; git -C "$1" remote add origin "$2"; git -C "$1" fetch --depth 1 origin "$3"; git -C "$1" checkout --detach FETCH_HEAD'
+        # Comparator's landrun sandbox may only write the judge project's .lake. Replaying the
+        # decompressed cache writes trace/hash files inside the Mathlib checkout, so do that once
+        # here, outside the sandbox. With the cache present this replays; it does not compile Mathlib.
+        run('prewarm', [str(Path.home() / '.elan/bin/lake'), 'build', 'Mathlib'], cwd=mathlib, timeout=1800)
         builds = [
             ('landrun', ['go', 'build', '-o', 'landrun', 'cmd/landrun/main.go'], 'landrun'),
             ('nanoda', ['cargo', 'build', '--release'], 'target/release/nanoda_bin'),
@@ -89,7 +93,7 @@ try:
         except OSError as exc:
             (out / 'setup_challenge.log').write_text(str(exc) + '\n'); rc = 127
         steps['challenge'] = {'rc': rc, 'seconds': round(time.monotonic()-start, 3)}
-        if all(steps[name]['rc'] == 0 for name in ('landrun', 'nanoda', 'lean4export', 'comparator', 'challenge')):
+        if all(steps[name]['rc'] == 0 for name in ('prewarm', 'landrun', 'nanoda', 'lean4export', 'comparator', 'challenge')):
             comparator_status = 'OK'
 finally:
     receipt = {'setup_status': status, 'mathlib_rev': revision, 'steps': steps,
