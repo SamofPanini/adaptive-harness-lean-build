@@ -1,0 +1,47 @@
+name: Verify Lean fixtures
+on:
+  workflow_dispatch:
+    inputs:
+      fixtures:
+        description: Space-separated fixture paths (blank selects public fixtures)
+        required: false
+        default: 'fixtures/public/core1/*.lean'
+        type: string
+      mathlib_rev:
+        description: Mathlib revision override (blank uses versions.env)
+        required: false
+        type: string
+      extra_b64:
+        description: Optional base64-encoded Lean source
+        required: false
+        type: string
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      MATHLIB_REV_OVERRIDE: ${{ inputs.mathlib_rev }}
+      FIXTURES: ${{ inputs.fixtures }}
+      EXTRA_B64: ${{ inputs.extra_b64 }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set work paths
+        # runner context is not available in job-level env; derive paths from RUNNER_TEMP here
+        run: |
+          echo "OUTPUT_DIR=$RUNNER_TEMP/lean-receipts" >> "$GITHUB_ENV"
+          echo "MATHLIB=$RUNNER_TEMP/mathlib" >> "$GITHUB_ENV"
+      - name: Prepare Lean and Mathlib cache
+        run: python3 runner/setup.py
+      - name: Verify fixtures
+        run: |
+          export PATH="$HOME/.elan/bin:$PATH"
+          python3 runner/run_fixtures.py
+      - name: Upload receipts and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lean-receipts
+          path: ${{ runner.temp }}/lean-receipts
+          if-no-files-found: warn
