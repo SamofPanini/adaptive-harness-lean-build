@@ -46,5 +46,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lean-receipts
-          path: ${{ runner.temp }}/lean-receipts
-          if-no-files-found: warn
+          # Receipts, logs and Lean sources only: tool builds and .olean outputs are
+          # reproducible from the pinned revisions and made the artifact ~30 MB.
+          path: |
+            ${{ runner.temp }}/lean-receipts
+            !${{ runner.temp }}/lean-receipts/tools
+            !${{ runner.temp }}/lean-receipts/**/build
+            !${{ runner.temp }}/lean-receipts/**/.lake
+          if-no-files-found: error
